@@ -11,6 +11,7 @@ using Remotely.Desktop.Core.Interfaces;
 using Microsoft.Extensions.DependencyInjection;
 using Remotely.Shared.Utilities;
 using System.Threading;
+using Remotely.Desktop.Core.Models;
 
 namespace Remotely.Desktop.Core.Services
 {
@@ -68,6 +69,15 @@ namespace Remotely.Desktop.Core.Services
         {
             await Connection.StopAsync();
             await Connection.DisposeAsync();
+        }
+
+        public async Task DisconnectAllViewers()
+        {
+            var conductor = ServiceContainer.Instance.GetRequiredService<Conductor>();
+            foreach (var viewer in conductor.Viewers.Values.ToList())
+            {
+                await DisconnectViewer(viewer, true);
+            }
         }
 
         public async Task<IceServerModel[]> GetIceServers()
@@ -173,9 +183,11 @@ namespace Remotely.Desktop.Core.Services
             await Connection.SendAsync("SendScreenSize", width, height, viewerID);
         }
 
-        public async Task SendViewerRemoved(string viewerID)
+        public async Task DisconnectViewer(Viewer viewer, bool notifyViewer)
         {
-            await Connection.SendAsync("SendViewerRemoved", viewerID);
+            viewer.DisconnectRequested = true;
+            viewer.Dispose();
+            await Connection.SendAsync("DisconnectViewer", viewer.ViewerConnectionID, notifyViewer);
         }
         public async Task SendWindowsSessions(List<WindowsSession> windowsSessions, string viewerID)
         {
@@ -257,18 +269,19 @@ namespace Remotely.Desktop.Core.Services
             Connection.On("Disconnect", async (string reason) =>
             {
                 Logger.Write($"Disconnecting caster socket.  Reason: {reason}");
-                foreach (var viewer in conductor.Viewers.Values.ToList())
-                {
-                    await Connection.SendAsync("ViewerDisconnected", viewer.ViewerConnectionID);
-                    viewer.DisconnectRequested = true;
-                }
+                await DisconnectAllViewers();
             });
 
-            Connection.On("GetScreenCast", (string viewerID, string requesterName) =>
+            Connection.On("GetScreenCast", (string viewerID, string requesterName, bool notifyUser) =>
             {
                 try
                 {
-                    ScreenCaster.BeginScreenCasting(new ScreenCastRequest() { ViewerID = viewerID, RequesterName = requesterName });
+                    ScreenCaster.BeginScreenCasting(new ScreenCastRequest()
+                    { 
+                        NotifyUser = notifyUser,
+                        ViewerID = viewerID, 
+                        RequesterName = requesterName 
+                    });
                 }
                 catch (Exception ex)
                 {
@@ -284,9 +297,14 @@ namespace Remotely.Desktop.Core.Services
                 }
             });
 
-            Connection.On("RequestScreenCast", (string viewerID, string requesterName) =>
+            Connection.On("RequestScreenCast", (string viewerID, string requesterName, bool notifyUser) =>
             {
-                conductor.InvokeScreenCastRequested(new ScreenCastRequest() { ViewerID = viewerID, RequesterName = requesterName });
+                conductor.InvokeScreenCastRequested(new ScreenCastRequest() 
+                { 
+                    NotifyUser = notifyUser,
+                    ViewerID = viewerID, 
+                    RequesterName = requesterName 
+                });
             });
 
             Connection.On("KeyDown", (string key, string viewerID) =>
@@ -369,10 +387,11 @@ namespace Remotely.Desktop.Core.Services
             });
             Connection.On("ViewerDisconnected", async (string viewerID) =>
             {
-                await Connection.SendAsync("ViewerDisconnected", viewerID);
+                await Connection.SendAsync("DisconnectViewer", viewerID, false);
                 if (conductor.Viewers.TryGetValue(viewerID, out var viewer))
                 {
                     viewer.DisconnectRequested = true;
+                    viewer.Dispose();
                 }
                 conductor.InvokeViewerRemoved(viewerID);
 

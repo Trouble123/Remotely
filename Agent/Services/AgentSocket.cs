@@ -150,32 +150,67 @@ namespace Remotely.Agent.Services
             // by emitting these events so other services can listen for them.
 
             HubConnection.On("Chat", async (string senderName, string message, string orgName, bool disconnected, string senderConnectionID) => {
+                if (!IsServerVerified)
+                {
+                    Logger.Write("Chat attempted before server was verified.", EventType.Warning);
+                    return;
+                }
+
                 await ChatService.SendMessage(senderName, message, orgName, disconnected, senderConnectionID, HubConnection);
             });
             HubConnection.On("DownloadFile", async (string filePath, string senderConnectionID) =>
             {
+                if (!IsServerVerified)
+                {
+                    Logger.Write("File download attempted before server was verified.", EventType.Warning);
+                    return;
+                }
+
                 filePath = filePath.Replace("\"", "");
                 if (!File.Exists(filePath))
                 {
                     await HubConnection.SendAsync("DisplayMessage", "File not found on remote device.", "File not found.", senderConnectionID);
                     return;
                 }
-                var wr = WebRequest.CreateHttp($"{ConnectionInfo.Host}/API/FileSharing/");
-                var wc = new WebClient();
-                var response = await wc.UploadFileTaskAsync($"{ConnectionInfo.Host}/API/FileSharing/", filePath);
-                var fileIDs = JsonSerializer.Deserialize<string[]>(Encoding.UTF8.GetString(response));
-                await HubConnection.SendAsync("DownloadFile", fileIDs[0], senderConnectionID);
+
+                using var wc = new WebClient();
+                var lastProgressPercent = 0;
+                wc.UploadProgressChanged += async (sender, args) =>
+                {
+                    if (args.ProgressPercentage > lastProgressPercent)
+                    {
+                        lastProgressPercent = args.ProgressPercentage;
+                        await HubConnection.SendAsync("DownloadFileProgress", lastProgressPercent, senderConnectionID);
+                    }
+                };
+
+                try
+                {
+                    var response = await wc.UploadFileTaskAsync($"{ConnectionInfo.Host}/API/FileSharing/", filePath);
+                    var fileIDs = JsonSerializer.Deserialize<string[]>(Encoding.UTF8.GetString(response));
+                    await HubConnection.SendAsync("DownloadFile", fileIDs[0], senderConnectionID);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Write(ex);
+                    await HubConnection.SendAsync("DisplayMessage", "Error occurred while uploading file from remote computer.", "Upload error.", senderConnectionID);
+                }
             });
             HubConnection.On("ChangeWindowsSession", async (string serviceID, string viewerID, int targetSessionID) =>
             {
+                if (!IsServerVerified)
+                {
+                    Logger.Write("Session change attempted before server was verified.", EventType.Warning);
+                    return;
+                }
+
                 await AppLauncher.RestartScreenCaster(new List<string>() { viewerID }, serviceID, viewerID, HubConnection, targetSessionID);
             });
             HubConnection.On("ExecuteCommand", (async (string mode, string command, string commandID, string senderConnectionID) =>
             {
                 if (!IsServerVerified)
                 {
-                    Logger.Write($"Command attempted before server was verified.  Mode: {mode}.  Command: {command}.  Sender: {senderConnectionID}");
-                    Uninstaller.UninstallAgent();
+                    Logger.Write($"Command attempted before server was verified.  Mode: {mode}.  Command: {command}.  Sender: {senderConnectionID}", EventType.Warning);
                     return;
                 }
 
@@ -185,8 +220,7 @@ namespace Remotely.Agent.Services
             {
                 if (!IsServerVerified)
                 {
-                    Logger.Write($"Command attempted before server was verified.  Mode: {mode}.  Command: {command}.  Sender: {senderUserName}");
-                    Uninstaller.UninstallAgent();
+                    Logger.Write($"Command attempted before server was verified.  Mode: {mode}.  Command: {command}.  Sender: {senderUserName}", EventType.Warning);
                     return;
                 }
 
@@ -194,6 +228,12 @@ namespace Remotely.Agent.Services
             }));
             HubConnection.On("UploadFiles", async (string transferID, List<string> fileIDs, string requesterID) =>
             {
+                if (!IsServerVerified)
+                {
+                    Logger.Write("File upload attempted before server was verified.", EventType.Warning);
+                    return;
+                }
+
                 Logger.Write($"File upload started by {requesterID}.");
                 var sharedFilePath = Directory.CreateDirectory(Path.Combine(Path.GetTempPath(),"RemotelySharedFiles")).FullName;
                 
@@ -213,26 +253,22 @@ namespace Remotely.Agent.Services
 
                     filename = new string(legalChars.ToArray());
 
-                    using (var rs = response.GetResponseStream())
-                    {
-                        using (var fs = new FileStream(Path.Combine(sharedFilePath, filename), FileMode.Create))
-                        {
-                            rs.CopyTo(fs);
-                        }
-                    }
+                    using var rs = response.GetResponseStream();
+                    using var fs = new FileStream(Path.Combine(sharedFilePath, filename), FileMode.Create);
+                    rs.CopyTo(fs);
                 }
-                await this.HubConnection.SendAsync("TransferCompleted", transferID, requesterID);
+                await HubConnection.SendAsync("TransferCompleted", transferID, requesterID);
             });
             HubConnection.On("DeployScript", async (string mode, string fileID, string commandResultID, string requesterID) => {
                 if (!IsServerVerified)
                 {
-                    Logger.Write($"Script deploy attempted before server was verified.  Mode: {mode}.  File ID: {fileID}.  Sender: {requesterID}");
-                    Uninstaller.UninstallAgent();
+                    Logger.Write($"Script deploy attempted before server was verified.  Mode: {mode}.  File ID: {fileID}.  Sender: {requesterID}", EventType.Warning);
                     return;
                 }
 
                 await ScriptRunner.RunScript(mode, fileID, commandResultID, requesterID, HubConnection);
             });
+
             HubConnection.On("UninstallClient", () =>
             {
                 Uninstaller.UninstallAgent();
@@ -242,8 +278,7 @@ namespace Remotely.Agent.Services
             {
                 if (!IsServerVerified)
                 {
-                    Logger.Write("Remote control attempted before server was verified.");
-                    Uninstaller.UninstallAgent();
+                    Logger.Write("Remote control attempted before server was verified.", EventType.Warning);
                     return;
                 }
                 await AppLauncher.LaunchRemoteControl(-1, requesterID, serviceID, HubConnection);
@@ -252,14 +287,18 @@ namespace Remotely.Agent.Services
             {
                 if (!IsServerVerified)
                 {
-                    Logger.Write("Remote control attempted before server was verified.");
-                    Uninstaller.UninstallAgent();
+                    Logger.Write("Remote control attempted before server was verified.", EventType.Warning);
                     return;
                 }
                 await AppLauncher.RestartScreenCaster(viewerIDs, serviceID, requesterID, HubConnection);
             });
             HubConnection.On("CtrlAltDel", () =>
             {
+                if (!IsServerVerified)
+                {
+                    Logger.Write("CtrlAltDel attempted before server was verified.", EventType.Warning);
+                    return;
+                }
                 User32.SendSAS(false);
             });
           
@@ -271,8 +310,7 @@ namespace Remotely.Agent.Services
                 }
                 else
                 {
-                    Logger.Write($"Server sent an incorrect verification token.  Token Sent: {verificationToken}.");
-                    Uninstaller.UninstallAgent();
+                    Logger.Write($"Server sent an incorrect verification token.  Token Sent: {verificationToken}.", EventType.Warning);
                     return;
                 }
             });           

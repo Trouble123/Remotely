@@ -157,8 +157,6 @@ namespace Remotely.Server.Hubs
                 CasterHubContext.Clients.Client(ScreenCasterID).SendAsync("ViewerDisconnected", Context.ConnectionId);
             }
 
-            SessionInfo?.ViewerConnections?.Remove(Context.ConnectionId, out _);
-
             return base.OnDisconnectedAsync(exception);
         }
 
@@ -221,7 +219,6 @@ namespace Remotely.Server.Hubs
             }
 
             SessionInfo = sessionInfo;
-            SessionInfo.ViewerConnections.AddOrUpdate(Context.ConnectionId, requesterName, (k, v) => requesterName);
             ScreenCasterID = screenCasterID;
             RequesterName = requesterName;
             Mode = (RemoteControlMode)remoteControlMode;
@@ -271,7 +268,7 @@ namespace Remotely.Server.Hubs
                     (Context.User.Identity.IsAuthenticated &&
                         DataService.DoesUserHaveAccessToDevice(deviceID, Context.UserIdentifier)))
                 {
-                    return CasterHubContext.Clients.Client(screenCasterID).SendAsync("GetScreenCast", Context.ConnectionId, requesterName);
+                    return CasterHubContext.Clients.Client(screenCasterID).SendAsync("GetScreenCast", Context.ConnectionId, requesterName, AppConfig.RemoteControlNotifyUser);
                 }
                 else
                 {
@@ -282,7 +279,7 @@ namespace Remotely.Server.Hubs
             {
                 SessionInfo.Mode = RemoteControlMode.Normal;
                 _ = Clients.Caller.SendAsync("RequestingScreenCast");
-                return CasterHubContext.Clients.Client(screenCasterID).SendAsync("RequestScreenCast", Context.ConnectionId, requesterName);
+                return CasterHubContext.Clients.Client(screenCasterID).SendAsync("RequestScreenCast", Context.ConnectionId, requesterName, AppConfig.RemoteControlNotifyUser);
             }
         }
         public Task SendSetKeyStatesUp()

@@ -60,8 +60,12 @@ namespace Remotely.Desktop.Win.Services
         public string SelectedScreen { get; private set; } = Screen.PrimaryScreen.DeviceName;
         public void Dispose()
         {
-            SystemEvents.DisplaySettingsChanged -= SystemEvents_DisplaySettingsChanged;
-            ClearDirectXOutputs();
+            try
+            {
+                SystemEvents.DisplaySettingsChanged -= SystemEvents_DisplaySettingsChanged;
+                ClearDirectXOutputs();
+            }
+            catch { }
         }
         public IEnumerable<string> GetDisplayNames() => Screen.AllScreens.Select(x => x.DeviceName);
 
@@ -116,6 +120,7 @@ namespace Remotely.Desktop.Win.Services
 
         public void Init()
         {
+            CaptureFullscreen = true;
             InitBitBlt();
             InitDirectX();
 
@@ -144,7 +149,11 @@ namespace Remotely.Desktop.Win.Services
         {
             foreach (var screen in directxScreens.Values)
             {
-                screen.Dispose();
+                try
+                {
+                    screen.Dispose();
+                }
+                catch { }
             }
             directxScreens.Clear();
         }

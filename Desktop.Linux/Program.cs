@@ -108,6 +108,8 @@ namespace Remotely.Desktop.Linux
             serviceCollection.AddScoped<IFileTransferService, FileTransferService>();
             serviceCollection.AddScoped<IWebRtcSessionFactory, WebRtcSessionFactory>();
             serviceCollection.AddSingleton<ICursorIconWatcher, CursorIconWatcherLinux>();
+            serviceCollection.AddSingleton<ISessionIndicator, SessionIndicatorLinux>();
+            serviceCollection.AddSingleton<IShutdownService, ShutdownServiceLinux>();
 
             ServiceContainer.Instance = serviceCollection.BuildServiceProvider();
         }

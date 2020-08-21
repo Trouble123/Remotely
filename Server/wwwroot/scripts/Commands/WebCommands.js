@@ -370,7 +370,7 @@ var commands = [
 ];
 function uploadFiles(fileList) {
     return new Promise((resolve, reject) => {
-        AddConsoleOutput("File upload started...");
+        AddConsoleOutput("File upload started.");
         var strPath = "/API/FileSharing/";
         var fd = new FormData();
         for (var i = 0; i < fileList.length; i++) {
@@ -380,7 +380,7 @@ function uploadFiles(fileList) {
         xhr.open('POST', strPath, true);
         xhr.addEventListener("load", function () {
             if (xhr.status === 200) {
-                AddConsoleOutput("File upload completed.");
+                AddConsoleOutput("File upload completed.  It might take a while for the agent to download it.");
                 resolve(JSON.parse(xhr.responseText));
             }
             else {
@@ -392,9 +392,13 @@ function uploadFiles(fileList) {
             AddConsoleOutput("File upload failed.");
             reject();
         });
-        xhr.addEventListener("progress", function (e) {
-            AddConsoleOutput("File upload progress: " + String(isFinite(e.loaded / e.total) ? e.loaded / e.total : 0) + "%");
-        });
+        xhr.upload.onprogress = (e) => {
+            var currentPercent = isFinite(e.loaded / e.total) ? Math.round(e.loaded / e.total * 100) : 0;
+            if (currentPercent > uploadPercent) {
+                var uploadPercent = currentPercent;
+                AddConsoleOutput("File upload progress: " + String(currentPercent) + "%");
+            }
+        };
         xhr.send(fd);
     });
 }
